@@ -24,16 +24,6 @@ class Erros(commands.Cog):
 
         if isinstance(
             error,
-            commands.CheckFailure
-        ):
-            await ctx.send(
-                "❌ Você não possui permissão para usar este comando.",
-                delete_after=6
-            )
-            return
-
-        if isinstance(
-            error,
             commands.MissingPermissions
         ):
             await ctx.send(
@@ -55,6 +45,26 @@ class Erros(commands.Cog):
 
         if isinstance(
             error,
+            commands.CommandOnCooldown
+        ):
+            await ctx.send(
+                f"⏳ Aguarde {error.retry_after:.1f}s para usar este comando novamente.",
+                delete_after=6
+            )
+            return
+
+        if isinstance(
+            error,
+            commands.MemberNotFound
+        ):
+            await ctx.send(
+                "⚠️ Não encontrei esse membro no servidor.",
+                delete_after=6
+            )
+            return
+
+        if isinstance(
+            error,
             commands.MissingRequiredArgument
         ):
             await ctx.send(
@@ -69,6 +79,16 @@ class Erros(commands.Cog):
         ):
             await ctx.send(
                 "⚠️ Não consegui entender um dos argumentos do comando.",
+                delete_after=6
+            )
+            return
+
+        if isinstance(
+            error,
+            commands.CheckFailure
+        ):
+            await ctx.send(
+                "❌ Você não possui permissão para usar este comando.",
                 delete_after=6
             )
             return

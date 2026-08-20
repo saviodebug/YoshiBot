@@ -8,6 +8,9 @@ from discord.ext import commands
 
 from utils.discord_db import (
     obter_proximo_ticket_id,
+    parse_meta,
+    registrar_avaliacao,
+    registrar_falha_avaliacao,
     registrar_ticket_aberto,
     registrar_ticket_fechado,
 )
@@ -15,6 +18,14 @@ from utils.transcript import gerar_transcript
 
 
 TICKETS_CATEGORY_ID = 1539818688138707044
+
+CARGOS_STAFF = {
+    1085662246828511249,  # Direção
+    1085662246828511248,  # Gerência
+    1085662246828511247,  # Coordenação
+    1085662246828511246,  # Supervisão
+    1085662246828511242,  # Equipe Yoshi
+}
 
 
 CATEGORIAS_TICKET = {
@@ -128,6 +139,228 @@ def encontrar_ticket_aberto(guild, usuario_id):
             return canal
 
     return None
+
+
+def eh_staff_ticket(membro: discord.Member) -> bool:
+    if (
+        membro.guild_permissions.administrator
+        or membro.guild_permissions.manage_messages
+        or membro.guild_permissions.manage_guild
+    ):
+        return True
+
+    ids = {
+        cargo.id
+        for cargo in membro.roles
+    }
+
+    return bool(ids.intersection(CARGOS_STAFF))
+
+
+def parse_ticket_topic(topic: str | None) -> dict:
+    dados = {
+        "ticket_id": None,
+        "ticket_owner": None,
+        "categoria": "desconhecida",
+        "claimed_by": 0
+    }
+
+    if not topic:
+        return dados
+
+    padroes = {
+        "ticket_id": r"ticket_id:(\d+)",
+        "ticket_owner": r"ticket_owner:(\d+)",
+        "categoria": r"categoria:([a-zA-Z0-9_-]+)",
+        "claimed_by": r"claimed_by:(\d+)"
+    }
+
+    for chave, padrao in padroes.items():
+        procura = re.search(
+            padrao,
+            topic
+        )
+
+        if not procura:
+            continue
+
+        valor = procura.group(1)
+
+        if chave in {"ticket_id", "ticket_owner", "claimed_by"}:
+            dados[chave] = int(valor)
+        else:
+            dados[chave] = valor
+
+    return dados
+
+
+def format_ticket_topic(dados: dict) -> str:
+    return (
+        f"ticket_id:{dados.get('ticket_id') or 0} | "
+        f"ticket_owner:{dados.get('ticket_owner') or 0} | "
+        f"categoria:{dados.get('categoria') or 'desconhecida'} | "
+        f"claimed_by:{dados.get('claimed_by') or 0}"
+    )
+
+
+async def atualizar_topic_ticket(
+    canal: discord.TextChannel,
+    dados: dict,
+    reason: str
+):
+    await canal.edit(
+        topic=format_ticket_topic(
+            dados
+        ),
+        reason=reason
+    )
+
+
+async def atualizar_embed_atendente(
+    canal: discord.TextChannel,
+    valor: str
+):
+    async for mensagem in canal.history(limit=20, oldest_first=True):
+        if mensagem.author.bot and mensagem.embeds:
+            embed = mensagem.embeds[0]
+
+            for indice, campo in enumerate(embed.fields):
+                if campo.name == "🙋 Atendido por":
+                    embed.set_field_at(
+                        indice,
+                        name="🙋 Atendido por",
+                        value=valor,
+                        inline=False
+                    )
+                    break
+            else:
+                embed.add_field(
+                    name="🙋 Atendido por",
+                    value=valor,
+                    inline=False
+                )
+
+            await mensagem.edit(embed=embed)
+            return
+
+
+class TicketRatingButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"ticket:rating:(?P<ticket_id>[0-9]+):(?P<stars>[1-5])"
+):
+
+    def __init__(
+        self,
+        ticket_id: int,
+        stars: int
+    ):
+        self.ticket_id = ticket_id
+        self.stars = stars
+
+        super().__init__(
+            discord.ui.Button(
+                label="⭐" * stars,
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"ticket:rating:{ticket_id}:{stars}"
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: discord.ui.Button,
+        match
+    ):
+        return cls(
+            int(match.group("ticket_id")),
+            int(match.group("stars"))
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+        if not interaction.message or not interaction.message.embeds:
+            await interaction.response.send_message(
+                "❌ Não consegui identificar esta avaliação.",
+                ephemeral=True
+            )
+            return
+
+        embed = interaction.message.embeds[0]
+        meta = parse_meta(embed.footer.text if embed.footer else None)
+
+        if meta.get("rated") == "1":
+            await interaction.response.send_message(
+                "⚠️ Este ticket já foi avaliado.",
+                ephemeral=True
+            )
+            return
+
+        owner_id = int(meta.get("owner_id", "0"))
+        staff_id = int(meta.get("staff_id", "0"))
+
+        if owner_id and interaction.user.id != owner_id:
+            await interaction.response.send_message(
+                "❌ Apenas o dono do ticket pode avaliar este atendimento.",
+                ephemeral=True
+            )
+            return
+
+        await registrar_avaliacao(
+            interaction.client,
+            self.ticket_id,
+            owner_id or interaction.user.id,
+            staff_id,
+            self.stars
+        )
+
+        estrelas = "⭐" * self.stars
+
+        novo_embed = discord.Embed(
+            title="✅ Obrigado pela avaliação!",
+            description=(
+                "Sua nota:\n"
+                f"{estrelas}\n\n"
+                f"`{self.stars}/5`"
+            ),
+            color=discord.Color.green(),
+            timestamp=discord.utils.utcnow()
+        )
+
+        novo_embed.set_footer(
+            text=(
+                f"ticket_id={self.ticket_id};"
+                f"owner_id={owner_id or interaction.user.id};"
+                f"staff_id={staff_id};"
+                "rated=1"
+            )
+        )
+
+        await interaction.response.edit_message(
+            embed=novo_embed,
+            view=None
+        )
+
+
+class TicketRatingView(discord.ui.View):
+
+    def __init__(
+        self,
+        ticket_id: int
+    ):
+        super().__init__(
+            timeout=None
+        )
+
+        for estrelas in range(1, 6):
+            self.add_item(
+                TicketRatingButton(
+                    ticket_id,
+                    estrelas
+                )
+            )
 
 
 async def criar_ticket(
@@ -252,7 +485,8 @@ async def criar_ticket(
             topic=(
                 f"ticket_id:{ticket_id} | "
                 f"ticket_owner:{usuario.id} | "
-                f"categoria:{categoria_escolhida}"
+                f"categoria:{categoria_escolhida} | "
+                "claimed_by:0"
             ),
             reason=(
                 f"Ticket #{ticket_id} - "
@@ -336,6 +570,12 @@ async def criar_ticket(
         inline=False
     )
 
+    embed.add_field(
+        name="🙋 Atendido por",
+        value="Aguardando atendimento",
+        inline=False
+    )
+
     embed.set_thumbnail(
         url=usuario.display_avatar.url
     )
@@ -371,6 +611,61 @@ async def criar_ticket(
         f"{canal_ticket.mention}",
         ephemeral=True
     )
+
+
+async def solicitar_avaliacao_ticket(
+    bot,
+    dono: discord.Member,
+    ticket_id: int,
+    atendente_id: int,
+    atendente: discord.Member | None = None
+):
+    atendente_texto = (
+        atendente.mention
+        if atendente is not None
+        else (
+            f"<@{atendente_id}>"
+            if atendente_id
+            else "Não registrado"
+        )
+    )
+
+    embed = discord.Embed(
+        title="⭐ Como foi seu atendimento?",
+        description=(
+            f"Seu **Ticket #{ticket_id}** foi encerrado.\n\n"
+            "**Atendido por:**\n"
+            f"{atendente_texto}\n\n"
+            "Avalie sua experiência:"
+        ),
+        color=discord.Color.gold(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.set_footer(
+        text=(
+            f"ticket_id={ticket_id};"
+            f"owner_id={dono.id};"
+            f"staff_id={atendente_id or 0};"
+            "rated=0"
+        )
+    )
+
+    try:
+        await dono.send(
+            embed=embed,
+            view=TicketRatingView(
+                ticket_id
+            )
+        )
+
+    except (discord.Forbidden, discord.HTTPException):
+        await registrar_falha_avaliacao(
+            bot,
+            ticket_id,
+            dono.id,
+            "DMs fechadas."
+        )
 
 
 class ResumoTicketModal(discord.ui.Modal):
@@ -444,6 +739,145 @@ class FecharTicketView(discord.ui.View):
         )
 
     @discord.ui.button(
+        label="Assumir ticket",
+        emoji="🙋",
+        style=discord.ButtonStyle.primary,
+        custom_id="yoshi:ticket:assumir"
+    )
+    async def assumir_ticket(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        canal = interaction.channel
+
+        if not isinstance(canal, discord.TextChannel):
+            return
+
+        if not isinstance(interaction.user, discord.Member):
+            return
+
+        dados = parse_ticket_topic(canal.topic)
+
+        dono_id = dados.get("ticket_owner")
+        claimed_by = dados.get("claimed_by") or 0
+
+        if not eh_staff_ticket(interaction.user):
+            await interaction.response.send_message(
+                "❌ Apenas a staff pode assumir tickets.",
+                ephemeral=True
+            )
+            return
+
+        if dono_id and interaction.user.id == dono_id:
+            await interaction.response.send_message(
+                "❌ O dono do ticket não pode assumir o próprio atendimento.",
+                ephemeral=True
+            )
+            return
+
+        if claimed_by:
+            await interaction.response.send_message(
+                f"⚠️ Este ticket já está sendo atendido por <@{claimed_by}>.",
+                ephemeral=True
+            )
+            return
+
+        dados["claimed_by"] = interaction.user.id
+
+        try:
+            await atualizar_topic_ticket(
+                canal,
+                dados,
+                f"Ticket assumido por {interaction.user} ({interaction.user.id})"
+            )
+
+            await atualizar_embed_atendente(
+                canal,
+                interaction.user.mention
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Não tenho permissão para atualizar este ticket.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            "✅ Você assumiu este ticket.",
+            ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="Liberar ticket",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary,
+        custom_id="yoshi:ticket:liberar"
+    )
+    async def liberar_ticket(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        canal = interaction.channel
+
+        if not isinstance(canal, discord.TextChannel):
+            return
+
+        if not isinstance(interaction.user, discord.Member):
+            return
+
+        dados = parse_ticket_topic(canal.topic)
+        claimed_by = dados.get("claimed_by") or 0
+
+        if not claimed_by:
+            await interaction.response.send_message(
+                "⚠️ Este ticket ainda não foi assumido.",
+                ephemeral=True
+            )
+            return
+
+        pode_liberar = (
+            interaction.user.id == claimed_by
+            or interaction.user.guild_permissions.administrator
+            or interaction.user.guild_permissions.manage_guild
+        )
+
+        if not pode_liberar:
+            await interaction.response.send_message(
+                "❌ Apenas quem assumiu ou a administração pode liberar este ticket.",
+                ephemeral=True
+            )
+            return
+
+        dados["claimed_by"] = 0
+
+        try:
+            await atualizar_topic_ticket(
+                canal,
+                dados,
+                f"Ticket liberado por {interaction.user} ({interaction.user.id})"
+            )
+
+            await atualizar_embed_atendente(
+                canal,
+                "Aguardando atendimento"
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Não tenho permissão para atualizar este ticket.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            "✅ Ticket liberado para outro membro da staff assumir.",
+            ephemeral=True
+        )
+
+    @discord.ui.button(
         label="Fechar ticket",
         emoji="🔒",
         style=discord.ButtonStyle.danger,
@@ -462,38 +896,26 @@ class FecharTicketView(discord.ui.View):
         ):
             return
 
-        dono_id = None
-        ticket_id = None
-        categoria = "desconhecida"
+        dados_ticket = parse_ticket_topic(
+            canal.topic
+        )
 
-        if canal.topic:
-            procura_dono = re.search(
-                r"ticket_owner:(\d+)",
-                canal.topic
-            )
+        dono_id = dados_ticket.get(
+            "ticket_owner"
+        )
 
-            procura_ticket = re.search(
-                r"ticket_id:(\d+)",
-                canal.topic
-            )
+        ticket_id = dados_ticket.get(
+            "ticket_id"
+        )
 
-            procura_categoria = re.search(
-                r"categoria:([a-zA-Z0-9_-]+)",
-                canal.topic
-            )
+        categoria = dados_ticket.get(
+            "categoria",
+            "desconhecida"
+        )
 
-            if procura_dono:
-                dono_id = int(
-                    procura_dono.group(1)
-                )
-
-            if procura_ticket:
-                ticket_id = int(
-                    procura_ticket.group(1)
-                )
-
-            if procura_categoria:
-                categoria = procura_categoria.group(1)
+        atendente_id = dados_ticket.get(
+            "claimed_by"
+        ) or 0
 
         usuario = interaction.user
 
@@ -503,9 +925,8 @@ class FecharTicketView(discord.ui.View):
         )
 
         eh_staff = (
-            usuario.guild_permissions.administrator
-            or usuario.guild_permissions.manage_messages
-            or usuario.guild_permissions.manage_guild
+            isinstance(usuario, discord.Member)
+            and eh_staff_ticket(usuario)
         )
 
         if not eh_dono and not eh_staff:
@@ -529,6 +950,28 @@ class FecharTicketView(discord.ui.View):
 
         await asyncio.sleep(5)
 
+        guild = canal.guild
+
+        dono = guild.get_member(
+            dono_id
+        )
+
+        if dono is None:
+            try:
+                dono = await guild.fetch_member(
+                    dono_id
+                )
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                dono = None
+
+        atendente = (
+            guild.get_member(
+                atendente_id
+            )
+            if atendente_id
+            else None
+        )
+
         try:
             transcript = await gerar_transcript(
                 canal
@@ -541,7 +984,9 @@ class FecharTicketView(discord.ui.View):
                 usuario,
                 canal.name,
                 categoria,
-                transcript
+                transcript,
+                atendente_id,
+                atendente
             )
 
         except Exception as erro:
@@ -577,6 +1022,27 @@ class FecharTicketView(discord.ui.View):
             print(
                 f"❌ Erro ao fechar ticket: {erro}"
             )
+
+        if dono is not None:
+            await solicitar_avaliacao_ticket(
+                interaction.client,
+                dono,
+                ticket_id,
+                atendente_id,
+                atendente
+            )
+        else:
+            try:
+                await registrar_falha_avaliacao(
+                    interaction.client,
+                    ticket_id,
+                    dono_id,
+                    "Usuário não encontrado para envio da DM."
+                )
+            except Exception as erro:
+                print(
+                    f"❌ Falha ao registrar ausência de avaliação: {erro}"
+                )
 
 
 class TicketSelect(discord.ui.Select):
@@ -681,6 +1147,10 @@ class Ticket(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
+        self.bot.add_dynamic_items(
+            TicketRatingButton
+        )
+
         self.bot.add_view(
             TicketView()
         )

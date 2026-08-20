@@ -3,6 +3,7 @@ from discord.ext import commands
 
 from utils.discord_db import (
     embed_field,
+    listar_avaliacoes,
     listar_boosters,
     listar_infracoes,
     listar_logs_tickets,
@@ -351,6 +352,7 @@ class Consultas(commands.Cog):
     @commands.command(
         name="historico"
     )
+    @commands.cooldown(1, 10, commands.BucketType.user)
     @eh_staff()
     async def historico(
         self,
@@ -466,6 +468,7 @@ class Consultas(commands.Cog):
     @commands.command(
         name="stats"
     )
+    @commands.cooldown(1, 15, commands.BucketType.user)
     @eh_staff()
     async def stats(
         self,
@@ -477,6 +480,10 @@ class Consultas(commands.Cog):
             )
 
             infracoes_logs = await listar_infracoes(
+                self.bot
+            )
+
+            avaliacoes_logs = await listar_avaliacoes(
                 self.bot
             )
 
@@ -538,6 +545,27 @@ class Consultas(commands.Cog):
 
         ping = round(
             self.bot.latency * 1000
+        )
+
+        notas = []
+
+        for _, meta, _ in avaliacoes_logs:
+            try:
+                notas.append(
+                    int(
+                        meta.get(
+                            "rating",
+                            "0"
+                        )
+                    )
+                )
+            except ValueError:
+                continue
+
+        media_avaliacoes = (
+            sum(notas) / len(notas)
+            if notas
+            else 0
         )
 
         embed = discord.Embed(
@@ -607,6 +635,24 @@ class Consultas(commands.Cog):
         )
 
         embed.add_field(
+            name="⭐ Avaliações",
+            value=str(
+                len(notas)
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="⭐ Média",
+            value=(
+                f"{media_avaliacoes:.1f} / 5"
+                if notas
+                else "Sem avaliações"
+            ),
+            inline=True
+        )
+
+        embed.add_field(
             name="🧩 Cogs",
             value=str(
                 len(self.bot.cogs)
@@ -616,6 +662,209 @@ class Consultas(commands.Cog):
 
         embed.set_footer(
             text="Yoshizinho City • Estatísticas"
+        )
+
+        await ctx.send(
+            embed=embed
+        )
+
+    @commands.command(
+        name="avaliacoes"
+    )
+    @commands.cooldown(1, 10, commands.BucketType.user)
+    @eh_staff()
+    async def avaliacoes(
+        self,
+        ctx,
+        membro: discord.Member
+    ):
+        async with ctx.typing():
+            registros = await listar_avaliacoes(
+                self.bot,
+                staff_id=membro.id
+            )
+
+        notas = []
+
+        for _, meta, _ in registros:
+            try:
+                notas.append(
+                    int(
+                        meta.get(
+                            "rating",
+                            "0"
+                        )
+                    )
+                )
+            except ValueError:
+                continue
+
+        contagem = {
+            estrela: notas.count(estrela)
+            for estrela in range(1, 6)
+        }
+
+        media = (
+            sum(notas) / len(notas)
+            if notas
+            else 0
+        )
+
+        embed = discord.Embed(
+            title=f"⭐ Avaliações de {membro.display_name}",
+            color=discord.Color.gold(),
+            timestamp=discord.utils.utcnow()
+        )
+
+        embed.add_field(
+            name="Atendimentos avaliados",
+            value=str(len(notas)),
+            inline=True
+        )
+
+        embed.add_field(
+            name="Média",
+            value=(
+                f"{media:.1f}/5"
+                if notas
+                else "Sem avaliações"
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="Distribuição",
+            value=(
+                f"5⭐: {contagem[5]}\n"
+                f"4⭐: {contagem[4]}\n"
+                f"3⭐: {contagem[3]}\n"
+                f"2⭐: {contagem[2]}\n"
+                f"1⭐: {contagem[1]}"
+            ),
+            inline=False
+        )
+
+        embed.set_thumbnail(
+            url=membro.display_avatar.url
+        )
+
+        await ctx.send(
+            embed=embed
+        )
+
+    @commands.command(
+        name="userinfo"
+    )
+    @commands.cooldown(1, 10, commands.BucketType.user)
+    @eh_staff()
+    async def userinfo(
+        self,
+        ctx,
+        membro: discord.Member
+    ):
+        async with ctx.typing():
+            tickets_logs = await listar_logs_tickets(
+                self.bot,
+                owner_id=membro.id
+            )
+
+            infracoes_logs = await listar_infracoes(
+                self.bot,
+                membro.id
+            )
+
+            avaliacoes_logs = await listar_avaliacoes(
+                self.bot,
+                staff_id=membro.id
+            )
+
+        tickets_ids = {
+            meta.get("ticket_id")
+            for _, meta, _ in tickets_logs
+            if meta.get("ticket_id")
+        }
+
+        notas = []
+
+        for _, meta, _ in avaliacoes_logs:
+            try:
+                notas.append(int(meta.get("rating", "0")))
+            except ValueError:
+                continue
+
+        cargos = [
+            cargo.mention
+            for cargo in membro.roles
+            if not cargo.is_default()
+        ]
+
+        embed = discord.Embed(
+            title=f"👤 Informações de {membro.display_name}",
+            color=discord.Color.from_rgb(0, 170, 255),
+            timestamp=discord.utils.utcnow()
+        )
+
+        embed.add_field(
+            name="Usuário",
+            value=f"{membro.mention}\n`{membro}`",
+            inline=True
+        )
+
+        embed.add_field(
+            name="ID",
+            value=f"`{membro.id}`",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Conta criada",
+            value=discord.utils.format_dt(membro.created_at, style="f"),
+            inline=False
+        )
+
+        if membro.joined_at:
+            embed.add_field(
+                name="Entrou no servidor",
+                value=discord.utils.format_dt(membro.joined_at, style="f"),
+                inline=False
+            )
+
+        embed.add_field(
+            name="Cargos",
+            value=", ".join(cargos[:20]) if cargos else "Nenhum cargo.",
+            inline=False
+        )
+
+        embed.add_field(
+            name="Booster",
+            value="Sim" if membro.premium_since else "Não",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Tickets registrados",
+            value=str(len(tickets_ids)),
+            inline=True
+        )
+
+        embed.add_field(
+            name="Infrações",
+            value=str(len(infracoes_logs)),
+            inline=True
+        )
+
+        if notas:
+            embed.add_field(
+                name="⭐ Avaliações recebidas",
+                value=(
+                    f"{len(notas)} avaliação(ões)\n"
+                    f"Média: {sum(notas) / len(notas):.1f}/5"
+                ),
+                inline=False
+            )
+
+        embed.set_thumbnail(
+            url=membro.display_avatar.url
         )
 
         await ctx.send(

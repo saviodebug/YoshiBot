@@ -181,7 +181,9 @@ async def registrar_ticket_fechado(
     fechado_por: discord.Member,
     canal_nome: str,
     categoria_slug: str,
-    transcript: discord.File | None = None
+    transcript: discord.File | None = None,
+    atendente_id: int | None = None,
+    atendente: discord.Member | None = None
 ):
     canal = await _canal(bot, LOG_TICKETS_CHANNEL_ID)
 
@@ -210,6 +212,19 @@ async def registrar_ticket_fechado(
         inline=True
     )
 
+    valor_atendente = "Não registrado"
+
+    if atendente is not None:
+        valor_atendente = f"{atendente.mention}\n`{atendente.id}`"
+    elif atendente_id:
+        valor_atendente = f"`{atendente_id}`"
+
+    embed.add_field(
+        name="🙋 Atendido por",
+        value=valor_atendente,
+        inline=True
+    )
+
     embed.add_field(
         name="📂 Categoria",
         value=categoria_slug,
@@ -229,7 +244,8 @@ async def registrar_ticket_fechado(
             f"owner_id={dono_id};"
             f"status=fechado;"
             f"categoria={categoria_slug};"
-            f"closed_by={fechado_por.id}"
+            f"closed_by={fechado_por.id};"
+            f"claimed_by={atendente_id or 0}"
         )
     )
 
@@ -306,7 +322,9 @@ async def registrar_infracao(
     tipo: str,
     acao: str,
     canal_origem: discord.abc.GuildChannel,
-    conteudo: str = ""
+    conteudo: str = "",
+    origem: str = "antispam",
+    moderador: discord.Member | None = None
 ):
     canal = await _canal(bot, LOG_INFRACOES_CHANNEL_ID)
 
@@ -335,6 +353,13 @@ async def registrar_infracao(
         inline=False
     )
 
+    if moderador is not None:
+        embed.add_field(
+            name="🛡️ Responsável",
+            value=f"{moderador.mention}\n`{moderador.id}`",
+            inline=True
+        )
+
     embed.add_field(
         name="📍 Canal",
         value=getattr(canal_origem, "mention", f"`{canal_origem}`"),
@@ -353,11 +378,143 @@ async def registrar_infracao(
             f"db=infracao;"
             f"user_id={membro.id};"
             f"tipo={tipo};"
-            f"acao={acao}"
+            f"acao={acao};"
+            f"origem={origem};"
+            f"moderador_id={moderador.id if moderador else 0}"
         )
     )
 
     await canal.send(embed=embed)
+
+
+async def registrar_avaliacao(
+    bot,
+    ticket_id: int,
+    usuario_id: int,
+    staff_id: int,
+    nota: int
+):
+    canal = await _canal(bot, LOG_TICKETS_CHANNEL_ID)
+
+    estrelas = "⭐" * nota
+
+    embed = discord.Embed(
+        title="⭐ Avaliação de atendimento",
+        color=discord.Color.gold(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.add_field(
+        name="🎫 Ticket",
+        value=f"`#{ticket_id}`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="👤 Usuário",
+        value=f"<@{usuario_id}>\n`{usuario_id}`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🙋 Atendente",
+        value=(
+            f"<@{staff_id}>\n`{staff_id}`"
+            if staff_id
+            else "Não registrado"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Nota",
+        value=f"{estrelas}\n`{nota}/5`",
+        inline=False
+    )
+
+    embed.set_footer(
+        text=(
+            f"db=avaliacao;"
+            f"ticket_id={ticket_id};"
+            f"owner_id={usuario_id};"
+            f"staff_id={staff_id};"
+            f"rating={nota}"
+        )
+    )
+
+    await canal.send(embed=embed)
+
+
+async def registrar_falha_avaliacao(
+    bot,
+    ticket_id: int,
+    usuario_id: int,
+    motivo: str
+):
+    canal = await _canal(bot, LOG_TICKETS_CHANNEL_ID)
+
+    embed = discord.Embed(
+        title="⚠️ Avaliação não solicitada",
+        description="Não foi possível enviar a avaliação por DM.",
+        color=discord.Color.orange(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.add_field(
+        name="🎫 Ticket",
+        value=f"`#{ticket_id}`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="👤 Usuário",
+        value=f"<@{usuario_id}>\n`{usuario_id}`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="Motivo",
+        value=motivo,
+        inline=False
+    )
+
+    embed.set_footer(
+        text=(
+            f"db=avaliacao_falha;"
+            f"ticket_id={ticket_id};"
+            f"owner_id={usuario_id}"
+        )
+    )
+
+    await canal.send(embed=embed)
+
+
+async def listar_avaliacoes(
+    bot,
+    staff_id: int | None = None
+) -> list[tuple[discord.Message, dict, discord.Embed]]:
+    canal = await _canal(bot, LOG_TICKETS_CHANNEL_ID)
+    encontrados = []
+
+    async for mensagem in canal.history(limit=None, oldest_first=True):
+        if not mensagem.embeds:
+            continue
+
+        embed = mensagem.embeds[0]
+        meta = parse_meta(embed.footer.text if embed.footer else None)
+
+        if meta.get("db") != "avaliacao":
+            continue
+
+        if (
+            staff_id is not None
+            and meta.get("staff_id") != str(staff_id)
+        ):
+            continue
+
+        encontrados.append((mensagem, meta, embed))
+
+    return encontrados
 
 
 async def listar_infracoes(

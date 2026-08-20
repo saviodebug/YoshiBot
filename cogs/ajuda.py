@@ -195,7 +195,28 @@ class Ajuda(commands.Cog):
                     "Publica/configura o sistema de armadilha.\n\n"
 
                     "`!status`\n"
-                    "Mostra o status geral do bot."
+                    "Mostra o status geral do bot.\n\n"
+
+                    "`!ban @usuário motivo`\n"
+                    "Bane um usuário e registra a ação.\n\n"
+
+                    "`!kick @usuário motivo`\n"
+                    "Expulsa um usuário e registra a ação.\n\n"
+
+                    "`!timeout @usuário 10m motivo`\n"
+                    "Aplica timeout temporário.\n\n"
+
+                    "`!untimeout @usuário motivo`\n"
+                    "Remove timeout de um usuário.\n\n"
+
+                    "`!warn @usuário motivo`\n"
+                    "Registra uma infração manual.\n\n"
+
+                    "`!avaliacoes @staff`\n"
+                    "Mostra avaliações recebidas por um atendente.\n\n"
+
+                    "`!userinfo @usuário`\n"
+                    "Mostra um resumo administrativo do usuário."
                 ),
 
                 inline=False
@@ -237,6 +258,12 @@ class Ajuda(commands.Cog):
                     "💜 Cargo automático de Booster\n"
                     "▶️ Monitoramento do YouTube\n"
                     "🎫 Sistema de tickets\n"
+                    "🙋 Assumir/liberar tickets\n"
+                    "⭐ Avaliação de atendimento\n"
+                    "🔊 Logs de voz\n"
+                    "✏️ Logs de mensagens editadas\n"
+                    "🗑️ Logs de mensagens deletadas\n"
+                    "🎭 Logs de cargos e apelidos\n"
                     "📄 Transcript de tickets\n"
                     "📊 Logs de moderação\n"
                     "👋 Entrada e saída de membros"

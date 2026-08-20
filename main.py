@@ -57,6 +57,18 @@ class BotYoshi(commands.Bot):
         )
 
         await self.load_extension(
+            "cogs.voz"
+        )
+
+        await self.load_extension(
+            "cogs.auditoria_membros"
+        )
+
+        await self.load_extension(
+            "cogs.moderacao"
+        )
+
+        await self.load_extension(
             "cogs.ticket"
         )
 

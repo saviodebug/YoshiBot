@@ -164,6 +164,31 @@ class DeletedMessageView(discord.ui.View):
         )
 
 
+class EditedMessageView(discord.ui.View):
+
+    def __init__(
+        self,
+        guild_id: int,
+        channel_id: int,
+        message_id: int
+    ):
+        super().__init__(
+            timeout=None
+        )
+
+        self.add_item(
+            discord.ui.Button(
+                label="Jump to Message",
+                emoji="↗️",
+                style=discord.ButtonStyle.link,
+                url=(
+                    "https://discord.com/channels/"
+                    f"{guild_id}/{channel_id}/{message_id}"
+                )
+            )
+        )
+
+
 class Deletados(commands.Cog):
 
     def __init__(
@@ -399,6 +424,76 @@ class Deletados(commands.Cog):
             )
         )
 
+    async def _enviar_log_editado(
+        self,
+        before: discord.Message,
+        after: discord.Message
+    ):
+        canal_log = await self._obter_canal_log()
+
+        if canal_log is None:
+            return
+
+        antes = (
+            before.clean_content
+            or before.content
+            or "[sem conteúdo de texto]"
+        )
+
+        depois = (
+            after.clean_content
+            or after.content
+            or "[sem conteúdo de texto]"
+        )
+
+        embed = discord.Embed(
+            title="✏️ Message Edited",
+            description=(
+                f"User: {after.author.mention}\n"
+                f"Channel: {after.channel.mention}"
+            ),
+            color=discord.Color.from_rgb(
+                240,
+                170,
+                55
+            ),
+            timestamp=discord.utils.utcnow()
+        )
+
+        embed.add_field(
+            name="ANTES",
+            value=limitar_texto(
+                antes,
+                900
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="DEPOIS",
+            value=limitar_texto(
+                depois,
+                900
+            ),
+            inline=False
+        )
+
+        embed.set_footer(
+            text=(
+                f"Author ID: {after.author.id} | "
+                f"Message ID: {after.id}"
+            )
+        )
+
+        await canal_log.send(
+            embed=embed,
+            view=EditedMessageView(
+                after.guild.id,
+                after.channel.id,
+                after.id
+            )
+        )
+
     @commands.Cog.listener()
     async def on_message_delete(
         self,
@@ -447,6 +542,25 @@ class Deletados(commands.Cog):
 
         await self._enviar_log_minimo(
             payload
+        )
+
+    @commands.Cog.listener()
+    async def on_message_edit(
+        self,
+        before: discord.Message,
+        after: discord.Message
+    ):
+        if self._deve_ignorar_mensagem(
+            before
+        ):
+            return
+
+        if before.content == after.content:
+            return
+
+        await self._enviar_log_editado(
+            before,
+            after
         )
 
 
