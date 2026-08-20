@@ -1,1 +1,1 @@
-deploys discloud/ export-ignore
+"deploys discloud/**" export-ignore
