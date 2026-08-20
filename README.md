@@ -117,23 +117,6 @@ YoshiBot/
 - Persistência de contador e registros utilizando canais privados do próprio Discord.
 - Deploy em produção 24/7 na Discloud.
 
-## Screenshots
-
-A pasta `docs/screenshots/` está preparada para imagens do projeto. Não há screenshots públicos adicionados neste repositório para evitar exposição acidental de tokens, dados privados de usuários ou conteúdo sensível de tickets.
-
-Sugestões de screenshots para adicionar depois:
-
-- Central de tickets
-- Ticket aberto
-- Modal de abertura
-- Logs
-- `!ajuda`
-- `!status`
-- `!stats`
-- Painel da Discloud mostrando o bot online
-
-Antes de adicionar imagens, verifique se elas não exibem tokens, `.env`, API keys, informações privadas de usuários ou conteúdo privado de denúncias/tickets.
-
 ## Configuração local
 
 1. Instale as dependências:
@@ -161,10 +144,6 @@ python main.py
 |----------|-----------|
 | `DISCORD_TOKEN` | Token do bot no Discord. |
 | `YOUTUBE_API_KEY` | Chave da YouTube Data API v3 usada pelo monitor de vídeos e lives. |
-
-## Segurança
-
-Este repositório não deve incluir `.env`, tokens, chaves de API, senhas, cookies, credenciais ou arquivos privados. IDs públicos de canais, cargos e servidor do Discord foram mantidos no código porque fazem parte da configuração operacional do bot.
 
 ## Licença
 
