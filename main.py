@@ -53,6 +53,10 @@ class BotYoshi(commands.Bot):
         )
 
         await self.load_extension(
+            "cogs.deletados"
+        )
+
+        await self.load_extension(
             "cogs.ticket"
         )
 

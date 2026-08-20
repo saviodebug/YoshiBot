@@ -46,6 +46,9 @@ AUTOMOD_CHANNEL_ID = 1085662370489176084
 # canal de logs
 TICKET_LOG_CHANNEL_ID = 1085662359688839340
 
+# Canal de logs de mensagens deletadas
+LOG_DELETADOS_CHANNEL_ID = 1085662359688839340
+
 
 # =========================================================
 # BOAS-VINDAS
