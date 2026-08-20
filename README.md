@@ -165,3 +165,7 @@ python main.py
 ## Segurança
 
 Este repositório não deve incluir `.env`, tokens, chaves de API, senhas, cookies, credenciais ou arquivos privados. IDs públicos de canais, cargos e servidor do Discord foram mantidos no código porque fazem parte da configuração operacional do bot.
+
+## Licença
+
+Este projeto está licenciado sob a licença MIT. Consulte o arquivo `LICENSE`.
